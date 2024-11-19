@@ -10,14 +10,22 @@ class ProductController extends Controller
 {
     public function index(Request $request)
     {
-
         if ($request->ajax()) {
             $products = Product::with('category:id,name')
-                ->select(['id', 'category_id', 'name', 'description', 'price']);
+                ->select(['id', 'category_id', 'name', 'description', 'price', 'image']); // Include the 'image' column
 
             return DataTables::of($products)
                 ->addColumn('category_name', function ($product) {
                     return $product->category->name;
+                })
+                ->addColumn('image', function ($product) {
+
+                    if ($product->image) {
+                        $imageUrl = asset(  $product->image);
+                        return '<img src="' . $imageUrl . '" alt="' . $product->name . '" width="100" height="100" class="img-thumbnail">';
+                    } else {
+                        return '<span>No Image</span>';
+                    }
                 })
                 ->addColumn('actions', function ($product) {
                     return '
@@ -27,15 +35,15 @@ class ProductController extends Controller
                         ' . method_field('DELETE') . '
                         <button type="submit" class="btn btn-danger btn-sm">Delete</button>
                     </form>
-                ';
+                    ';
                 })
-                ->rawColumns(['actions'])
+                ->rawColumns(['actions', 'image'])  // Make the 'image' column HTML safe
                 ->make(true);
         }
 
         return view('products.index');
-
     }
+
 
     public function create()
     {
@@ -51,8 +59,24 @@ class ProductController extends Controller
             'description' => 'required|string|max:1000',
             'price' => 'required|numeric|min:0',
             'category_id' => 'required|exists:categories,id',
+            'image' => 'nullable|image|mimes:jpeg,png,jpg,avif,gif|max:2048',
         ]);
-        Product::create($request->all());
+
+        if ($request->hasFile('image')) {
+            $image = $request->file('image');
+            $imageName = time() . '-' . $image->getClientOriginalName();
+            $image->move(public_path('images/products'), $imageName);  // Move image to public/images/products/
+            $imagePath = 'images/products/' . $imageName;  // Store relative path
+        }
+
+        Product::create([
+            'name' => $request->name,
+            'description' => $request->description,
+            'price' => $request->price,
+            'category_id' => $request->category_id,
+            'image' => isset($imagePath) ? $imagePath : null,
+        ]);
+
         return redirect()->route('products.index')->with('success', 'Product Created Successfully.');
     }
 
@@ -64,14 +88,30 @@ class ProductController extends Controller
 
     public function update(Request $request, Product $product)
     {
-
         $request->validate([
             'name' => 'required|string|max:255',
             'description' => 'required|string|max:1000',
             'price' => 'required|numeric|min:0',
+            'image' => 'nullable|image|mimes:jpeg,png,jpg,avif,gif|max:2048',
         ]);
 
-        $product->update($request->all());
+        if ($request->hasFile('image')) {
+            if ($product->image && file_exists(storage_path( $product->image))) {
+                unlink(storage_path($product->image));
+
+            }
+
+
+            $image = $request->file('image');
+            $imageName = time() . '-' . $image->getClientOriginalName();
+            $image->move(public_path('images/products'), $imageName);  // Move image to public/images/products/
+            $imagePath = 'images/products/' . $imageName;  // Store
+
+            $product->image = $imagePath;
+        }
+
+        $product->update($request->except('image'));
+
         return redirect()->route('products.index')->with('success', 'Product Updated Successfully.');
     }
 
